@@ -1,34 +1,41 @@
 package main
 
 import (
+	"log"
+
 	"github.com/Tholkappiar/go-crud.git/Database"
 	"github.com/Tholkappiar/go-crud.git/controllers"
+	"github.com/Tholkappiar/go-crud.git/middleware"
 	"github.com/Tholkappiar/go-crud.git/model"
 	"github.com/gin-gonic/gin"
+	"github.com/joho/godotenv"
 )
 
 func init() {
-	Database.ConnectToDB()
-	Database.DB.AutoMigrate(&model.Blog{}, &model.User{})
+    err := godotenv.Load()
+    if err != nil {
+        log.Fatalf("err loading: %v", err)
+    }
+    
+    Database.ConnectToDB()
+    
+    if err := Database.DB.AutoMigrate(&model.Blog{}); err != nil {
+        log.Printf("Migration error: %v", err)
+    }
+    
 }
 
-
 func main() {
-	server := gin.Default();
-	server.GET("/get", func(c *gin.Context) {
-		c.JSON(200, gin.H{
-			"message": "this is thols",
-		})
-	})
-
-	server.GET("/blogs", controllers.GetBlog)
-	server.POST("/blog", controllers.PostBlog)
-	server.PUT("/blog/:id", controllers.UpdateBlog)
-	server.DELETE("/blog/:id", controllers.DeleteBlog)
-
+	server := gin.Default()
 
 	server.POST("/user/register", controllers.Register)
 	server.POST("/user/login", controllers.Login)
+	
+	server.GET("/blog/:blogId", controllers.GetBlog)
+	server.GET("/blogs", controllers.GetBlogs)
+	server.POST("/blog", middleware.ExtractEmailFromJWT(), controllers.PostBlog)
+	server.PUT("/blog/:id", middleware.ExtractEmailFromJWT(), controllers.UpdateBlog)
+	server.DELETE("/blog/:id", middleware.ExtractEmailFromJWT(), controllers.DeleteBlog)
 
 	server.Run()
 }

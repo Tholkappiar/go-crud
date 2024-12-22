@@ -1,51 +1,68 @@
 package controllers
 
 import (
+	"fmt"
+	"log"
 	"net/http"
 	"os"
-	"time"
 
-	"github.com/Tholkappiar/go-crud.git/Database"
-	"github.com/Tholkappiar/go-crud.git/model"
 	"github.com/gin-gonic/gin"
-	"github.com/golang-jwt/jwt"
-	"golang.org/x/crypto/bcrypt"
+	"github.com/joho/godotenv"
+	"github.com/supabase-community/gotrue-go/types"
+	"github.com/supabase-community/supabase-go"
 )
 
+var client *supabase.Client
+
+func init() {
+	err1 := godotenv.Load()
+    if err1 != nil {
+        log.Fatalf("err loading: %v", err1)
+    }
+    var err error
+    client, err = supabase.NewClient(os.Getenv("SUPABASE_URL"), os.Getenv("SUPABASE_KEY"), &supabase.ClientOptions{})
+    if err != nil {
+        fmt.Println("Cannot initialize Supabase client:", err)
+    }
+    if client == nil {
+        fmt.Println("Supabase client is nil")
+    } else {
+        fmt.Println("Supabase client initialized successfully")
+    }
+}
 
 func Register(c *gin.Context) {
-	
 	var body struct {
-		Email string
+		Email    string
 		Password string
 	}
 
 	if err := c.ShouldBindJSON(&body); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H {
+		c.JSON(http.StatusBadRequest, gin.H{
 			"message": "Failed to read body",
 		})
 		return
 	}
+
+	if client == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"message": "Supabase client is not initialized",
+		})
+		return
+	}
+
 	
-	hash , err := bcrypt.GenerateFromPassword([]byte(body.Password),10)
+	userSession, err := client.Auth.Signup(types.SignupRequest{Email: body.Email,Password: body.Password})
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H {
-			"message": "Failed to Hash Password",
-		})
-		return
-	}
-	
-	user := model.User{Email: body.Email,Password: string(hash)}
-
-	if err := Database.DB.Create(&user).Error; err != nil {
-		c.JSON(http.StatusBadRequest, gin.H {
-			"message": "Error while creating user",
+		c.JSON(http.StatusBadRequest, gin.H{
+			"message": "Failed to sign up user with Supabase",
 		})
 		return
 	}
 
-	c.JSON(http.StatusCreated, gin.H {
+	c.JSON(http.StatusCreated, gin.H{
 		"message": "Successfully registered",
+		"session": userSession,
 	})
 }
 
@@ -56,45 +73,28 @@ func Login(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&input); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H {
+		c.JSON(http.StatusBadRequest, gin.H{
 			"message": "Invalid inputs",
 		})
 		return
 	}
 
-
-	var user model.User
-	
-	if err := Database.DB.Where("email = ?", input.Email).First(&user).Error; err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid email"})
-		return
-	}
-
-	err := bcrypt.CompareHashAndPassword([]byte(user.Password),[]byte(input.Password))
-	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H {
-			"message": "Invalid Email or Password",
+	if client == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"message": "Supabase client is not initialized",
 		})
 		return
 	}
 
-
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-		"email": input.Email,
-		"exp": time.Now().Add(24 * 60 * 60).Unix(),
-	})
-	
-	SECRET_KEY := os.Getenv("SECRET_KEY")
-	tokenString, err := token.SignedString([]byte(SECRET_KEY))
-
+	userSession, err := client.SignInWithEmailPassword(input.Email, input.Password)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H {
-			"message": "Error while creating the token",
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"message": "Invalid email or password",
 		})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H {
-		"token": tokenString,
+	c.JSON(http.StatusOK, gin.H{
+		"session": userSession,
 	})
 }
